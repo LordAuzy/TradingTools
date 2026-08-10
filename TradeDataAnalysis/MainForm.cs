@@ -71,7 +71,7 @@ namespace TradeDataAnalysis
                 Padding = new Padding(10, 10, 10, 5)
             };
 
-            txtDirectoryPath = new TextBox { Width = 500, Margin = new Padding(0, 3, 8, 0) };
+            txtDirectoryPath = new TextBox { Width = 700, Margin = new Padding(0, 3, 8, 0) };
             btnBrowse = new Button { Text = "Browse...", AutoSize = true, Padding = new Padding(8, 2, 8, 2), Margin = new Padding(0, 0, 8, 0) };
             btnLoadData = new Button { Text = "Load Data", AutoSize = true, Padding = new Padding(12, 2, 12, 2) };
 
@@ -107,15 +107,15 @@ namespace TradeDataAnalysis
             var pnlQuery = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill, // Fills remaining vertical space in Panel1
-                ColumnCount = 2,
-                RowCount = 2,
+                ColumnCount = 1,
+                RowCount = 3,
                 Padding = new Padding(10, 5, 10, 10)
             };
 
             pnlQuery.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            pnlQuery.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             pnlQuery.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             pnlQuery.RowStyles.Add(new RowStyle(SizeType.Percent, 100F)); // Textbox expands as panel resizes
+            pnlQuery.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             var lblQuery = new Label { Text = "LINQ Query (Available variables: 'Bars', 'Trades'):", AutoSize = true, Margin = new Padding(0, 0, 0, 4) };
 
@@ -131,8 +131,11 @@ namespace TradeDataAnalysis
             btnRunQuery = new Button
             {
                 Text = "Run Query",
-                Dock = DockStyle.Fill,
+                Dock = DockStyle.Left,
                 Width = 130,
+                Height = 40,
+                MinimumSize = new Size(130, 50),
+                Padding = new Padding(8, 6, 8, 6),
                 Font = new Font(this.Font.FontFamily, 10F, FontStyle.Bold)
             };
             btnRunQuery.Click += BtnRunQuery_Click;
@@ -140,7 +143,7 @@ namespace TradeDataAnalysis
             pnlQuery.Controls.Add(lblQuery, 0, 0);
             pnlQuery.SetColumnSpan(lblQuery, 2);
             pnlQuery.Controls.Add(txtLinqQuery, 0, 1);
-            pnlQuery.Controls.Add(btnRunQuery, 1, 1);
+            pnlQuery.Controls.Add(btnRunQuery, 0, 2);
 
             // Assembly of Panel 1 (Top Controls + Query Editor)
             splitMain.Panel1.Controls.Add(pnlQuery);
