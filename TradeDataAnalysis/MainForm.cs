@@ -17,6 +17,7 @@ namespace TradeDataAnalysis
 {
     public partial class MainForm : Form
     {
+        private readonly TradeDataService _dataService = new TradeDataService();
         private List<TradeBar> _allBars = new List<TradeBar>();
         private List<Trade> _allTrades = new List<Trade>();
         private List<SavedQuery> _savedQueries = new List<SavedQuery>();
@@ -47,24 +48,53 @@ namespace TradeDataAnalysis
         {
             this.Text = "AnalyzeTradeData - WinForms LINQ Analyzer";
             this.Size = new Size(1250, 850);
+            this.MinimumSize = new Size(900, 600);
 
-            // --- Top Panel: Directory Loader ---
-            var pnlTop = new Panel { Dock = DockStyle.Top, Height = 45 };
-            txtDirectoryPath = new TextBox { Left = 12, Top = 12, Width = 600 };
-            btnBrowse = new Button { Text = "Browse...", Left = 620, Top = 10, Width = 80 };
-            btnLoadData = new Button { Text = "Load Data", Left = 710, Top = 10, Width = 100 };
+            // --- Main Vertical SplitContainer (Top Controls vs DataGridView) ---
+            var splitMain = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Horizontal,
+                SplitterDistance = 240, // Initial height of the top section
+                SplitterWidth = 6,      // Width of the draggable divider bar
+                Panel1MinSize = 150,    // Prevents resizing top panel too small
+                Panel2MinSize = 100     // Prevents resizing grid area too small
+            };
+
+            // --- 1. Top Bar: Directory Loader (FlowLayoutPanel) ---
+            var pnlTop = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = false,
+                Padding = new Padding(10, 10, 10, 5)
+            };
+
+            txtDirectoryPath = new TextBox { Width = 500, Margin = new Padding(0, 3, 8, 0) };
+            btnBrowse = new Button { Text = "Browse...", AutoSize = true, Padding = new Padding(8, 2, 8, 2), Margin = new Padding(0, 0, 8, 0) };
+            btnLoadData = new Button { Text = "Load Data", AutoSize = true, Padding = new Padding(12, 2, 12, 2) };
 
             btnBrowse.Click += BtnBrowse_Click;
             btnLoadData.Click += BtnLoadData_Click;
             pnlTop.Controls.AddRange(new Control[] { txtDirectoryPath, btnBrowse, btnLoadData });
 
-            // --- Presets Panel ---
-            var pnlPresets = new Panel { Dock = DockStyle.Top, Height = 40 };
-            var lblPresets = new Label { Text = "Query Presets:", Left = 12, Top = 10, AutoSize = true };
-            cboQueryPresets = new ComboBox { Left = 105, Top = 6, Width = 400, DropDownStyle = ComboBoxStyle.DropDownList };
-            btnSaveQuery = new Button { Text = "Save As Preset...", Left = 512, Top = 5, Width = 120 };
-            btnDeleteQuery = new Button { Text = "Delete Preset", Left = 638, Top = 5, Width = 100 };
-            btnExportCsv = new Button { Text = "Export Grid to CSV", Left = 744, Top = 5, Width = 130 };
+            // --- 2. Presets Bar (FlowLayoutPanel) ---
+            var pnlPresets = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = false,
+                Padding = new Padding(10, 5, 10, 5)
+            };
+
+            var lblPresets = new Label { Text = "Query Presets:", AutoSize = true, Margin = new Padding(0, 6, 8, 0) };
+            cboQueryPresets = new ComboBox { Width = 350, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 3, 12, 0) };
+
+            btnSaveQuery = new Button { Text = "Save As Preset...", AutoSize = true, Padding = new Padding(8, 2, 8, 2), Margin = new Padding(0, 0, 8, 0) };
+            btnDeleteQuery = new Button { Text = "Delete Preset", AutoSize = true, Padding = new Padding(8, 2, 8, 2), Margin = new Padding(0, 0, 8, 0) };
+            btnExportCsv = new Button { Text = "Export Grid to CSV", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
 
             cboQueryPresets.SelectedIndexChanged += CboQueryPresets_SelectedIndexChanged;
             btnSaveQuery.Click += BtnSaveQuery_Click;
@@ -73,43 +103,66 @@ namespace TradeDataAnalysis
 
             pnlPresets.Controls.AddRange(new Control[] { lblPresets, cboQueryPresets, btnSaveQuery, btnDeleteQuery, btnExportCsv });
 
-            // --- Query Editor Panel ---
-            var pnlQuery = new Panel { Dock = DockStyle.Top, Height = 130 };
-            var lblQuery = new Label { Text = "LINQ Query (Available variables: 'Bars', 'Trades'):", Left = 12, Top = 4, AutoSize = true };
+            // --- 3. Query Editor Area (TableLayoutPanel - Expands Vertically with Splitter) ---
+            var pnlQuery = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill, // Fills remaining vertical space in Panel1
+                ColumnCount = 2,
+                RowCount = 2,
+                Padding = new Padding(10, 5, 10, 10)
+            };
+
+            pnlQuery.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            pnlQuery.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            pnlQuery.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            pnlQuery.RowStyles.Add(new RowStyle(SizeType.Percent, 100F)); // Textbox expands as panel resizes
+
+            var lblQuery = new Label { Text = "LINQ Query (Available variables: 'Bars', 'Trades'):", AutoSize = true, Margin = new Padding(0, 0, 0, 4) };
 
             txtLinqQuery = new TextBox
             {
-                Left = 12,
-                Top = 22,
-                Width = 1050,
-                Height = 90,
+                Dock = DockStyle.Fill,
                 Multiline = true,
                 ScrollBars = ScrollBars.Vertical,
-                Font = new Font("Consolas", 10F)
+                Font = new Font("Consolas", 10F),
+                Margin = new Padding(0, 0, 10, 0)
             };
 
-            btnRunQuery = new Button { Text = "Run Query", Left = 1070, Top = 22, Width = 140, Height = 90, Font = new Font(this.Font.FontFamily, 10F, FontStyle.Bold) };
+            btnRunQuery = new Button
+            {
+                Text = "Run Query",
+                Dock = DockStyle.Fill,
+                Width = 130,
+                Font = new Font(this.Font.FontFamily, 10F, FontStyle.Bold)
+            };
             btnRunQuery.Click += BtnRunQuery_Click;
 
-            pnlQuery.Controls.AddRange(new Control[] { lblQuery, txtLinqQuery, btnRunQuery });
+            pnlQuery.Controls.Add(lblQuery, 0, 0);
+            pnlQuery.SetColumnSpan(lblQuery, 2);
+            pnlQuery.Controls.Add(txtLinqQuery, 0, 1);
+            pnlQuery.Controls.Add(btnRunQuery, 1, 1);
 
-            // --- Results Grid ---
+            // Assembly of Panel 1 (Top Controls + Query Editor)
+            splitMain.Panel1.Controls.Add(pnlQuery);
+            splitMain.Panel1.Controls.Add(pnlPresets);
+            splitMain.Panel1.Controls.Add(pnlTop);
+
+            // --- 4. Results DataGridView (Fills Panel 2) ---
             gridResults = new DataGridView
             {
                 Dock = DockStyle.Fill,
                 ReadOnly = true,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells
             };
+            splitMain.Panel2.Controls.Add(gridResults);
 
-            // --- Status Bar ---
+            // --- 5. Status Strip ---
             statusStrip = new StatusStrip();
             lblStatus = new ToolStripStatusLabel { Text = "Ready. Select directory and load data." };
             statusStrip.Items.Add(lblStatus);
 
-            this.Controls.Add(gridResults);
-            this.Controls.Add(pnlQuery);
-            this.Controls.Add(pnlPresets);
-            this.Controls.Add(pnlTop);
+            // Add root components to form
+            this.Controls.Add(splitMain);
             this.Controls.Add(statusStrip);
         }
 
@@ -307,51 +360,26 @@ namespace TradeDataAnalysis
             btnLoadData.Enabled = false;
             lblStatus.Text = "Loading CSV files...";
 
-            await Task.Run(() => LoadCsvData(dirPath));
-
-            lblStatus.Text = $"Loaded {_allBars.Count:N0} bars across {_allTrades.Count:N0} unique trades.";
-            btnLoadData.Enabled = true;
-        }
-
-        private void LoadCsvData(string dirPath)
-        {
-            var files = Directory.GetFiles(dirPath, "*.csv", SearchOption.AllDirectories);
-            var loadedBars = new List<TradeBar>();
-
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            try
             {
-                HasHeaderRecord = true,
-                MissingFieldFound = null,
-                HeaderValidated = null
-            };
-
-            foreach (var file in files)
-            {
-                try
-                {
-                    using (var reader = new StreamReader(file))
-                    using (var csv = new CsvReader(reader, config))
-                    {
-                        var records = csv.GetRecords<TradeBar>();
-                        loadedBars.AddRange(records);
-                    }
-                }
-                catch
-                {
-                    // Ignore corrupt or non-matching CSV files
-                }
+                // Execute non-UI loading on background thread
+                var (totalBars, totalTrades) = await Task.Run(() => _dataService.LoadCsvData(dirPath));
+                lblStatus.Text = $"Loaded {totalBars:N0} bars across {totalTrades:N0} unique trades.";
             }
-
-            _allBars = loadedBars;
-            _allTrades = _allBars
-                .GroupBy(b => b.TradeId)
-                .Select(g => new Trade { TradeId = g.Key, Bars = g.OrderBy(b => b.BarsSinceEntry).ToList() })
-                .ToList();
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading data: {ex.Message}", "Loading Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                lblStatus.Text = "Data load failed.";
+            }
+            finally
+            {
+                btnLoadData.Enabled = true;
+            }
         }
 
         private async void BtnRunQuery_Click(object sender, EventArgs e)
         {
-            if (_allBars.Count == 0)
+            if (!_dataService.HasData)
             {
                 MessageBox.Show("Please load trade data first.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
@@ -365,7 +393,12 @@ namespace TradeDataAnalysis
 
             try
             {
-                var globals = new ScriptGlobals { Bars = _allBars, Trades = _allTrades };
+                // Pass service data collections directly to Roslyn Globals
+                var globals = new ScriptGlobals
+                {
+                    Bars = _dataService.AllBars,
+                    Trades = _dataService.AllTrades
+                };
 
                 var scriptOptions = ScriptOptions.Default
                     .WithReferences(typeof(Enumerable).Assembly, typeof(TradeBar).Assembly)
@@ -384,11 +417,6 @@ namespace TradeDataAnalysis
                     gridResults.DataSource = new List<object> { new { Result = queryResult } };
                     lblStatus.Text = "Query completed (scalar result).";
                 }
-            }
-            catch (CompilationErrorException ex)
-            {
-                MessageBox.Show($"Compilation Error:\n\n{string.Join("\n", ex.Diagnostics)}", "Script Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                lblStatus.Text = "Query failed due to compilation errors.";
             }
             catch (Exception ex)
             {
@@ -432,129 +460,3 @@ namespace TradeDataAnalysis
         #endregion
     }
 }
-
-
-/*
-
-
-
-
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Globalization;
-using System.IO;
-using System.Linq;
-using System.Text.Json;
-using System.Threading.Tasks;
-using System.Windows.Forms;
-using CsvHelper;
-using CsvHelper.Configuration;
-using Microsoft.CodeAnalysis.CSharp.Scripting;
-using Microsoft.CodeAnalysis.Scripting;
-
-namespace TradeDataAnalysis // Match your project's namespace
-{
-    public partial class MainForm : Form
-    {
-        private List<TradeBar> _allBars = new List<TradeBar>();
-        private List<Trade> _allTrades = new List<Trade>();
-        private List<SavedQuery> _savedQueries = new List<SavedQuery>();
-        private readonly string _presetFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "saved_queries.json");
-
-        // UI Controls
-        private TextBox txtDirectoryPath;
-        private Button btnBrowse;
-        private Button btnLoadData;
-        private ComboBox cboQueryPresets;
-        private Button btnSaveQuery;
-        private Button btnDeleteQuery;
-        private TextBox txtLinqQuery;
-        private Button btnRunQuery;
-        private Button btnExportCsv;
-        private DataGridView gridResults;
-        private StatusStrip statusStrip;
-        private ToolStripStatusLabel lblStatus;
-
-        public MainForm()
-        {
-            InitializeComponent(); // Keeps VS designer initialization
-            InitializeComponentUI(); // Builds our custom layout
-            LoadDefaultAndUserPresets();
-        }
-
-        private void InitializeComponentUI()
-        {
-            this.Text = "Trade Data LINQ Analyzer";
-            this.Size = new Size(1250, 850);
-
-            // --- Top Panel: Directory Loader ---
-            var pnlTop = new Panel { Dock = DockStyle.Top, Height = 45 };
-            txtDirectoryPath = new TextBox { Left = 12, Top = 12, Width = 600 };
-            btnBrowse = new Button { Text = "Browse...", Left = 620, Top = 10, Width = 80 };
-            btnLoadData = new Button { Text = "Load Data", Left = 710, Top = 10, Width = 100 };
-
-            btnBrowse.Click += BtnBrowse_Click;
-            btnLoadData.Click += BtnLoadData_Click;
-            pnlTop.Controls.AddRange(new Control[] { txtDirectoryPath, btnBrowse, btnLoadData });
-
-            // --- Presets Panel ---
-            var pnlPresets = new Panel { Dock = DockStyle.Top, Height = 40 };
-            var lblPresets = new Label { Text = "Query Presets:", Left = 12, Top = 10, AutoSize = true };
-            cboQueryPresets = new ComboBox { Left = 105, Top = 6, Width = 400, DropDownStyle = ComboBoxStyle.DropDownList };
-            btnSaveQuery = new Button { Text = "Save As Preset...", Left = 512, Top = 5, Width = 120 };
-            btnDeleteQuery = new Button { Text = "Delete Preset", Left = 638, Top = 5, Width = 100 };
-            btnExportCsv = new Button { Text = "Export Grid to CSV", Left = 744, Top = 5, Width = 130 };
-
-            cboQueryPresets.SelectedIndexChanged += CboQueryPresets_SelectedIndexChanged;
-            btnSaveQuery.Click += BtnSaveQuery_Click;
-            btnDeleteQuery.Click += BtnDeleteQuery_Click;
-            btnExportCsv.Click += BtnExportCsv_Click;
-
-            pnlPresets.Controls.AddRange(new Control[] { lblPresets, cboQueryPresets, btnSaveQuery, btnDeleteQuery, btnExportCsv });
-
-            // --- Query Editor Panel ---
-            var pnlQuery = new Panel { Dock = DockStyle.Top, Height = 130 };
-            var lblQuery = new Label { Text = "LINQ Query (Available variables: 'Bars', 'Trades'):", Left = 12, Top = 4, AutoSize = true };
-
-            txtLinqQuery = new TextBox
-            {
-                Left = 12,
-                Top = 22,
-                Width = 1050,
-                Height = 90,
-                Multiline = true,
-                ScrollBars = ScrollBars.Vertical,
-                Font = new Font("Consolas", 10F)
-            };
-
-            btnRunQuery = new Button { Text = "Run Query", Left = 1070, Top = 22, Width = 140, Height = 90, Font = new Font(this.Font.FontFamily, 10F, FontStyle.Bold) };
-            btnRunQuery.Click += BtnRunQuery_Click;
-
-            pnlQuery.Controls.AddRange(new Control[] { lblQuery, txtLinqQuery, btnRunQuery });
-
-            // --- Results Grid ---
-            gridResults = new DataGridView
-            {
-                Dock = DockStyle.Fill,
-                ReadOnly = true,
-                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells
-            };
-
-            // --- Status Bar ---
-            statusStrip = new StatusStrip();
-            lblStatus = new ToolStripStatusLabel { Text = "Ready. Select directory and load data." };
-            statusStrip.Items.Add(lblStatus);
-
-            this.Controls.Add(gridResults);
-            this.Controls.Add(pnlQuery);
-            this.Controls.Add(pnlPresets);
-            this.Controls.Add(pnlTop);
-            this.Controls.Add(statusStrip);
-        }
-
-        // ... [Paste remaining methods: BtnBrowse_Click, LoadCsvData, BtnRunQuery_Click, etc.] ...
-    }
-}
-*/
