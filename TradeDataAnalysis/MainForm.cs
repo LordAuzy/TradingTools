@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Data;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
@@ -22,6 +23,21 @@ namespace TradeDataAnalysis
         private List<Trade> _allTrades = new List<Trade>();
         private List<SavedQuery> _savedQueries = new List<SavedQuery>();
         private readonly string _presetFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "saved_queries.json");
+        private readonly string _layoutFilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "TradingTools",
+            "TradeDataAnalysis",
+            "window-layout.json");
+
+        private sealed class WindowLayoutState
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+            public int Width { get; set; }
+            public int Height { get; set; }
+            public FormWindowState WindowState { get; set; }
+            public int SplitterDistance { get; set; }
+        }
 
         // UI Controls
         private TextBox txtDirectoryPath;
@@ -36,12 +52,115 @@ namespace TradeDataAnalysis
         private DataGridView gridResults;
         private StatusStrip statusStrip;
         private ToolStripStatusLabel lblStatus;
+        private SplitContainer splitContainer1;
 
         public MainForm()
         {
             InitializeComponent();
             InitializeComponentUI();
             LoadDefaultAndUserPresets();
+            LoadWindowLayout();
+            FormClosing += (_, _) => SaveWindowLayout();
+        }
+
+        private void SaveWindowLayout()
+        {
+            try
+            {
+                Rectangle bounds = WindowState == FormWindowState.Normal
+                    ? Bounds
+                    : RestoreBounds;
+
+                var state = new WindowLayoutState
+                {
+                    X = bounds.X,
+                    Y = bounds.Y,
+                    Width = bounds.Width,
+                    Height = bounds.Height,
+                    WindowState = WindowState == FormWindowState.Minimized
+                        ? FormWindowState.Normal
+                        : WindowState,
+                    SplitterDistance = splitContainer1.SplitterDistance
+                };
+
+                Directory.CreateDirectory(Path.GetDirectoryName(_layoutFilePath)!);
+
+                File.WriteAllText(
+                    _layoutFilePath,
+                    JsonSerializer.Serialize(state, new JsonSerializerOptions
+                    {
+                        WriteIndented = true
+                    }));
+            }
+            catch
+            {
+                // Ignore layout save errors.
+            }
+        }
+
+        private void LoadWindowLayout()
+        {
+            try
+            {
+                if (!File.Exists(_layoutFilePath))
+                    return;
+
+                var json = File.ReadAllText(_layoutFilePath);
+                var state = JsonSerializer.Deserialize<WindowLayoutState>(json);
+
+                if (state == null)
+                    return;
+
+                var bounds = new Rectangle(state.X, state.Y, state.Width, state.Height);
+
+                if (IsVisibleOnAnyScreen(bounds))
+                {
+                    StartPosition = FormStartPosition.Manual;
+                    Bounds = bounds;
+                }
+
+                Shown += (_, _) =>
+                {
+                    RestoreSplitterDistance(state.SplitterDistance);
+
+                    if (state.WindowState == FormWindowState.Maximized)
+                        WindowState = FormWindowState.Maximized;
+                };
+            }
+            catch
+            {
+                // Ignore layout restore errors.
+            }
+        }
+
+        private static bool IsVisibleOnAnyScreen(Rectangle bounds)
+        {
+            return Screen.AllScreens.Any(screen =>
+                screen.WorkingArea.IntersectsWith(bounds));
+        }
+
+        private void RestoreSplitterDistance(int splitterDistance)
+        {
+            int min = splitContainer1.Panel1MinSize;
+            int max;
+
+            if (splitContainer1.Orientation == Orientation.Vertical)
+            {
+                max = splitContainer1.Width
+                    - splitContainer1.Panel2MinSize
+                    - splitContainer1.SplitterWidth;
+            }
+            else
+            {
+                max = splitContainer1.Height
+                    - splitContainer1.Panel2MinSize
+                    - splitContainer1.SplitterWidth;
+            }
+
+            if (max <= min)
+                return;
+
+            splitContainer1.SplitterDistance = Math.Clamp(splitterDistance, min, max);
         }
 
         private void InitializeComponentUI()
@@ -51,7 +170,7 @@ namespace TradeDataAnalysis
             this.MinimumSize = new Size(900, 600);
 
             // --- Main Vertical SplitContainer (Top Controls vs DataGridView) ---
-            var splitMain = new SplitContainer
+            splitContainer1 = new SplitContainer
             {
                 Dock = DockStyle.Fill,
                 Orientation = Orientation.Horizontal,
@@ -146,9 +265,9 @@ namespace TradeDataAnalysis
             pnlQuery.Controls.Add(btnRunQuery, 0, 2);
 
             // Assembly of Panel 1 (Top Controls + Query Editor)
-            splitMain.Panel1.Controls.Add(pnlQuery);
-            splitMain.Panel1.Controls.Add(pnlPresets);
-            splitMain.Panel1.Controls.Add(pnlTop);
+            splitContainer1.Panel1.Controls.Add(pnlQuery);
+            splitContainer1.Panel1.Controls.Add(pnlPresets);
+            splitContainer1.Panel1.Controls.Add(pnlTop);
 
             // --- 4. Results DataGridView (Fills Panel 2) ---
             gridResults = new DataGridView
@@ -157,7 +276,7 @@ namespace TradeDataAnalysis
                 ReadOnly = true,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells
             };
-            splitMain.Panel2.Controls.Add(gridResults);
+            splitContainer1.Panel2.Controls.Add(gridResults);
 
             // --- 5. Status Strip ---
             statusStrip = new StatusStrip();
@@ -165,7 +284,7 @@ namespace TradeDataAnalysis
             statusStrip.Items.Add(lblStatus);
 
             // Add root components to form
-            this.Controls.Add(splitMain);
+            this.Controls.Add(splitContainer1);
             this.Controls.Add(statusStrip);
         }
 
@@ -411,9 +530,9 @@ namespace TradeDataAnalysis
 
                 if (queryResult is IEnumerable enumerable)
                 {
-                    var resultList = enumerable.Cast<object>().ToList();
-                    gridResults.DataSource = resultList;
-                    lblStatus.Text = $"Query completed. {resultList.Count:N0} rows returned.";
+                    DataTable dt = enumerable.ToDataTable();
+                    gridResults.DataSource = dt;
+                    lblStatus.Text = $"Query completed. {dt.Rows.Count:N0} rows returned.";
                 }
                 else
                 {
