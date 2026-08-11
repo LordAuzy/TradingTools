@@ -37,6 +37,9 @@ namespace TradeDataAnalysis
             public int Height { get; set; }
             public FormWindowState WindowState { get; set; }
             public int SplitterDistance { get; set; }
+
+            public string? DirectoryPath { get; set; }
+            public int QueryPresetSelectedIndex { get; set; } = -1;
         }
 
         // UI Controls
@@ -80,7 +83,10 @@ namespace TradeDataAnalysis
                     WindowState = WindowState == FormWindowState.Minimized
                         ? FormWindowState.Normal
                         : WindowState,
-                    SplitterDistance = splitContainer1.SplitterDistance
+                    SplitterDistance = splitContainer1.SplitterDistance,
+
+                    DirectoryPath = txtDirectoryPath.Text,
+                    QueryPresetSelectedIndex = cboQueryPresets.SelectedIndex
                 };
 
                 Directory.CreateDirectory(Path.GetDirectoryName(_layoutFilePath)!);
@@ -110,6 +116,14 @@ namespace TradeDataAnalysis
 
                 if (state == null)
                     return;
+
+                txtDirectoryPath.Text = state.DirectoryPath ?? string.Empty;
+
+                if (state.QueryPresetSelectedIndex >= 0 &&
+                    state.QueryPresetSelectedIndex < cboQueryPresets.Items.Count)
+                {
+                    cboQueryPresets.SelectedIndex = state.QueryPresetSelectedIndex;
+                }
 
                 var bounds = new Rectangle(state.X, state.Y, state.Width, state.Height);
 
