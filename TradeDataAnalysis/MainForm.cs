@@ -11,8 +11,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using CsvHelper;
 using CsvHelper.Configuration;
-using Microsoft.CodeAnalysis.CSharp.Scripting;
-using Microsoft.CodeAnalysis.Scripting;
+using DuckDB.NET.Data;
 
 namespace TradeDataAnalysis
 {
@@ -250,7 +249,7 @@ namespace TradeDataAnalysis
             pnlQuery.RowStyles.Add(new RowStyle(SizeType.Percent, 100F)); // Textbox expands as panel resizes
             pnlQuery.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            var lblQuery = new Label { Text = "LINQ Query (Available variables: 'Bars', 'Trades'):", AutoSize = true, Margin = new Padding(0, 0, 0, 4) };
+            var lblQuery = new Label { Text = "SQL Query (Available tables: 'Bars', 'Trades'):", AutoSize = true, Margin = new Padding(0, 0, 0, 4) };
 
             txtLinqQuery = new TextBox
             {
@@ -311,52 +310,70 @@ namespace TradeDataAnalysis
                 new SavedQuery
                 {
                     Name = "[Built-In] Evaluate Early Cut Rule (-0.5 R at Bar 2)",
-                    QueryText = @"Trades.Select(t => {
-    var cutBar = t.Bars.FirstOrDefault(b => b.BarsSinceEntry >= 2 && b.CurrentR < -0.5);
-    return new {
-        t.TradeId,
-        OriginalFinalR = t.FinalR,
-        CutTriggered = cutBar != null,
-        CutBarNumber = cutBar?.BarsSinceEntry,
-        SimulatedR = cutBar != null ? cutBar.CurrentR : t.FinalR,
-        SavedR = cutBar != null ? cutBar.CurrentR - t.FinalR : 0.0
-    };
-})"
+                    QueryText = @"WITH CutBars AS (
+    SELECT
+        TradeId,
+        MIN(BarsSinceEntry) AS CutBarNumber
+    FROM Bars
+    WHERE BarsSinceEntry >= 2 AND CurrentR < -0.5
+    GROUP BY TradeId
+)
+SELECT
+    t.TradeId,
+    t.FinalR AS OriginalFinalR,
+    c.CutBarNumber IS NOT NULL AS CutTriggered,
+    c.CutBarNumber,
+    COALESCE(cb.CurrentR, t.FinalR) AS SimulatedR,
+    COALESCE(cb.CurrentR, t.FinalR) - t.FinalR AS SavedR
+FROM Trades t
+LEFT JOIN CutBars c ON c.TradeId = t.TradeId
+LEFT JOIN Bars cb ON cb.TradeId = c.TradeId AND cb.BarsSinceEntry = c.CutBarNumber
+ORDER BY t.TradeId"
                 },
                 new SavedQuery
                 {
                     Name = "[Built-In] System-Wide Baseline vs Cut Comparison",
-                    QueryText = @"new[] {
-    new { 
-        Strategy = ""Original Baseline"", 
-        TotalR = Trades.Sum(t => t.FinalR),
-        WinRatePct = Trades.Count(t => t.IsWinner) * 100.0 / Trades.Count
-    },
-    new { 
-        Strategy = ""With Early Cut Rule"", 
-        TotalR = Trades.Sum(t => {
-            var cut = t.Bars.FirstOrDefault(b => b.BarsSinceEntry >= 2 && b.CurrentR <= -0.5 && b.EMASpreadSlope5 < 0);
-            return cut != null ? cut.CurrentR : t.FinalR;
-        }),
-        WinRatePct = Trades.Count(t => {
-            var cut = t.Bars.FirstOrDefault(b => b.BarsSinceEntry >= 2 && b.CurrentR <= -0.5 && b.EMASpreadSlope5 < 0);
-            double r = cut != null ? cut.CurrentR : t.FinalR;
-            return r > 0;
-        }) * 100.0 / Trades.Count
-    }
-}"
+                    QueryText = @"WITH CutBars AS (
+    SELECT
+        TradeId,
+        MIN(BarsSinceEntry) AS CutBarNumber
+    FROM Bars
+    WHERE BarsSinceEntry >= 2 AND CurrentR <= -0.5 AND EMASpreadSlope5 < 0
+    GROUP BY TradeId
+),
+SimulatedTrades AS (
+    SELECT
+        t.TradeId,
+        t.FinalR,
+        COALESCE(cb.CurrentR, t.FinalR) AS SimulatedR
+    FROM Trades t
+    LEFT JOIN CutBars c ON c.TradeId = t.TradeId
+    LEFT JOIN Bars cb ON cb.TradeId = c.TradeId AND cb.BarsSinceEntry = c.CutBarNumber
+)
+SELECT 'Original Baseline' AS Strategy,
+       SUM(FinalR) AS TotalR,
+       COUNT(*) FILTER (WHERE FinalR > 0) * 100.0 / COUNT(*) AS WinRatePct
+FROM SimulatedTrades
+UNION ALL
+SELECT 'With Early Cut Rule' AS Strategy,
+       SUM(SimulatedR) AS TotalR,
+       COUNT(*) FILTER (WHERE SimulatedR > 0) * 100.0 / COUNT(*) AS WinRatePct
+FROM SimulatedTrades"
                 },
                 new SavedQuery
                 {
                     Name = "[Built-In] Find Recovered Losers (MAE < -0.5 R but hit Profit)",
-                    QueryText = @"Trades.Where(t => t.Bars.Any(b => b.MAE <= -0.5) && t.FinalR > 0)
-      .Select(t => new {
-          t.TradeId,
-          MinMAE = t.Bars.Min(b => b.MAE),
-          MaxMFE = t.Bars.Max(b => b.MFE),
-          FinalR = t.FinalR,
-          TotalBars = t.Bars.Count
-      })"
+                    QueryText = @"SELECT
+    t.TradeId,
+    MIN(b.MAE) AS MinMAE,
+    MAX(b.MFE) AS MaxMFE,
+    t.FinalR,
+    t.BarCount AS TotalBars
+FROM Trades t
+JOIN Bars b ON b.TradeId = t.TradeId
+GROUP BY t.TradeId, t.FinalR, t.BarCount
+HAVING MIN(b.MAE) <= -0.5 AND t.FinalR > 0
+ORDER BY t.TradeId"
                 }
             };
 
@@ -521,48 +538,61 @@ namespace TradeDataAnalysis
                 return;
             }
 
-            string userCode = txtLinqQuery.Text.Trim();
-            if (string.IsNullOrWhiteSpace(userCode)) return;
+            string userSql = txtLinqQuery.Text.Trim();
+            if (string.IsNullOrWhiteSpace(userSql)) return;
 
             btnRunQuery.Enabled = false;
-            lblStatus.Text = "Executing LINQ query...";
+            lblStatus.Text = "Executing SQL query...";
 
             try
             {
-                // Pass service data collections directly to Roslyn Globals
-                var globals = new ScriptGlobals
+                DataTable resultTable = await Task.Run(() => RunDuckDbQuery(userSql));
+
+                gridResults.DataSource = resultTable;
+
+                foreach (DataGridViewColumn column in gridResults.Columns)
                 {
-                    Bars = _dataService.AllBars,
-                    Trades = _dataService.AllTrades
-                };
-
-                var scriptOptions = ScriptOptions.Default
-                    .WithReferences(typeof(Enumerable).Assembly, typeof(TradeBar).Assembly)
-                    .WithImports("System", "System.Linq", "System.Collections.Generic");
-
-                object queryResult = await CSharpScript.EvaluateAsync(userCode, scriptOptions, globals);
-
-                if (queryResult is IEnumerable enumerable)
-                {
-                    DataTable dt = enumerable.ToDataTable();
-                    gridResults.DataSource = dt;
-                    lblStatus.Text = $"Query completed. {dt.Rows.Count:N0} rows returned.";
+                    column.SortMode = DataGridViewColumnSortMode.Automatic;
                 }
-                else
-                {
-                    gridResults.DataSource = new List<object> { new { Result = queryResult } };
-                    lblStatus.Text = "Query completed (scalar result).";
-                }
+
+                lblStatus.Text = $"Query completed. {resultTable.Rows.Count:N0} rows returned.";
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Execution Error:\n\n{ex.Message}", "Script Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Execution Error:\n\n{ex.Message}", "Query Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 lblStatus.Text = "Query failed during execution.";
             }
             finally
             {
                 btnRunQuery.Enabled = true;
             }
+        }
+
+        /// <summary>
+        /// Executes the given SQL against DuckDB, exposing the loaded data as the
+        /// "Bars" and "Trades" tables (backed by the Parquet files exported by TradeDataService).
+        /// </summary>
+        private DataTable RunDuckDbQuery(string sql)
+        {
+            using var connection = new DuckDBConnection("Data Source=:memory:");
+            connection.Open();
+
+            using (var setupCmd = connection.CreateCommand())
+            {
+                setupCmd.CommandText =
+                    $"CREATE VIEW Bars AS SELECT * FROM read_parquet('{_dataService.BarsParquetPath.Replace("'", "''")}');" +
+                    $"CREATE VIEW Trades AS SELECT * FROM read_parquet('{_dataService.TradesParquetPath.Replace("'", "''")}');";
+                setupCmd.ExecuteNonQuery();
+            }
+
+            using var queryCmd = connection.CreateCommand();
+            queryCmd.CommandText = sql;
+
+            using var reader = queryCmd.ExecuteReader();
+
+            var table = new DataTable();
+            table.Load(reader);
+            return table;
         }
 
         private void BtnExportCsv_Click(object sender, EventArgs e)
